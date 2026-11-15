@@ -4,14 +4,16 @@ import {resolve,dirname,join} from "node:path";
 import {TARGETS,COMPONENTS,STALE,normalize,append,allIncidents} from "./model.mjs";
 export async function probe(url,kind="cms",fetchImpl=globalThis.fetch){
  if(!TARGETS.includes(url))throw Error("Unknown target");
- const destination=kind==="web"?new URL("/",url).href:url;
+ if(!["cms","web","auth","ai"].includes(kind))throw Error("Unknown component");
+ const destination=kind==="web"?new URL("/",url).href:kind==="auth"?new URL("/login",url).href:kind==="ai"?new URL("/api/tigo",url).href:url;
  const start=performance.now();let status=null;
  try{
  const res=await fetchImpl(destination,{redirect:"error",cache:"no-store",credentials:"omit",signal:AbortSignal.timeout(8000)});
  status=res.status;if(!res.ok)throw Error("HTTP");
  let valid=false;
  if(kind==="cms"){const body=await res.json();valid=body?.service==="typengo-cms"&&body?.scope==="http-liveness"&&body?.status==="ok";}
- else{const html=await res.text();valid=(res.headers.get("content-type")||"").includes("text/html")&&/TypeNGo/i.test(html);}
+ else if(kind==="ai"){const body=await res.json();valid=["live","demo"].includes(body?.mode)&&Array.isArray(body?.suggestions)&&(body.mode!=="live"||typeof body.turnstileSiteKey==="string"&&body.turnstileSiteKey.length>0);}
+ else{const html=await res.text();valid=(res.headers.get("content-type")||"").includes("text/html")&&/TypeNGo/i.test(html)&&(kind!=="auth"||/tn-login-title|type="password"/i.test(html));}
  if(!valid)throw Error("Invalid response");
  return {state:"ok",httpStatus:status,latencyMs:Math.round(performance.now()-start)};
  }catch{return {state:"unverified",httpStatus:status,latencyMs:null};}
@@ -27,9 +29,11 @@ if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
  if(!TARGETS.includes(target))throw Error("Unknown target");
  let previous={samples:[]};try{previous=JSON.parse(await readFile(file,"utf8"));}catch(e){if(e.code!=="ENOENT")throw e;}
  const checkedAt=new Date().toISOString();
- const [cms,web]=await Promise.all([probe(target,"cms"),probe(target,"web")]);
- const data=append(previous,{checkedAt,checks:{cms,web}},target);
+ const checks=Object.fromEntries(await Promise.all(COMPONENTS.filter(c=>c.monitored).map(async c=>[c.id,await probe(target,c.id)])));
+ const data=append(previous,{checkedAt,checks},target);
  await writeFile(file+".tmp",JSON.stringify(data)+"\n");await rename(file+".tmp",file);
  await writeFile(join(dirname(file),"feed.xml"),makeFeed(data));
- console.log(JSON.stringify({checkedAt,checks:{cms,web}}));
+ console.log(JSON.stringify({checkedAt,checks}));
+ const events=allIncidents(data.samples).filter(i=>i.confirmedAt===checkedAt||i.resolvedAt===checkedAt);
+ await writeFile(join(dirname(file),"events.json"),JSON.stringify(events.map(({id,state,confirmedAt,resolvedAt})=>({id,state,confirmedAt,resolvedAt})))+"\n");
 }

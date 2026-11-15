@@ -19,8 +19,8 @@ function render(){
  head.append(el("span","state"+(state==="ok"?" ok":state==="unverified"?" warn":""),c.monitored?label(state):"Sin monitor"));section.append(head);
  if(c.monitored){const b=daily(samples,c.id,days,now),bars=el("div","bars"),info=el("p","bar-info","Selecciona un día para consultar las comprobaciones.");bars.style.setProperty("--days",days);bars.setAttribute("role","group");bars.setAttribute("aria-label","Histórico diario de "+c.name);
  for(const d of b){const state=d.unverified?"warn":d.ok?"ok":"none";const bar=el("button","bar "+state+(d.slots&&d.slots<d.expected?" partial":""));const desc=d.date+" UTC · "+d.ok+" correctas, "+d.unverified+" no verificadas, "+d.slots+" de "+d.expected+" intervalos con datos";bar.type="button";bar.title=desc;bar.setAttribute("aria-label",desc);bar.addEventListener("click",()=>{info.textContent=desc;});bar.addEventListener("focus",()=>{info.textContent=desc;});bars.append(bar);}
- const observed=b.reduce((a,d)=>a+d.slots,0),expected=b.reduce((a,d)=>a+d.expected,0);
- const cap=el("div","bar-caption");cap.append(el("span","",days+" días atrás"),el("span","",Math.round(100*observed/expected)+"% de intervalos observados"),el("span","","Hoy"));section.append(bars,cap,info);
+ const observed=b.reduce((a,d)=>a+d.slots,0),expected=b.reduce((a,d)=>a+d.expected,0),healthy=b.reduce((a,d)=>a+d.ok,0);
+ const cap=el("div","bar-caption");cap.append(el("span","",days+" días atrás"),el("span","",Math.round(100*observed/expected)+"% cobertura · "+(observed?(100*healthy/observed).toFixed(2)+"% comprobaciones correctas":"sin datos")),el("span","","Hoy"));section.append(bars,cap,info);
  const last=latest(samples,c.id);if(last?.checks[c.id].state==="ok"&&last.checks[c.id].latencyMs!=null)section.append(el("p","","Última respuesta registrada: "+last.checks[c.id].latencyMs+" ms"));}
  root.append(section);
  }

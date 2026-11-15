@@ -21,6 +21,8 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      new_incident: ${{ steps.events.outputs.new_incident }}
     permissions:
       contents: read
       actions: read
@@ -58,6 +60,10 @@ jobs:
           if test -f previous/status-history.json; then cp previous/status-history.json site/status-history.json; fi
           node collect.mjs site/status-history.json
           cp index.html style.css app.mjs model.mjs monitor.mjs site/
+      - name: Detect newly confirmed incidents
+        id: events
+        run: |
+          jq -r '"new_incident=" + (any(.[]; .state == "investigating") | tostring)' site/events.json >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: typengo-status-history
@@ -80,3 +86,14 @@ jobs:
     steps:
       - uses: actions/deploy-pages@v4
         id: deployment
+
+  incident_notification:
+    runs-on: ubuntu-latest
+    needs: [collect, deploy]
+    if: ${{ needs.collect.outputs.new_incident == 'true' }}
+    permissions: {}
+    steps:
+      - name: Signal newly confirmed incident through GitHub Actions
+        run: |
+          echo "::error::A new HTTP incident was confirmed. See https://status.typengo.com/ for details."
+          exit 1
