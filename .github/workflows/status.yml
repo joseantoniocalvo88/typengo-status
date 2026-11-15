@@ -3,6 +3,13 @@
 name: TypeNGo independent status
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '*.mjs'
+      - '*.html'
+      - '*.css'
+      - '.github/workflows/status.yml'
   schedule:
     - cron: "7,22,37,52 * * * *"
 permissions:
@@ -23,6 +30,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Run monitor tests
+        run: node --test tests.mjs
       - name: Locate preceding status artifact
         id: previous
         env:
@@ -37,19 +46,19 @@ jobs:
           artifact-ids: ${{ steps.previous.outputs.id }}
           github-token: ${{ github.token }}
           path: previous
-      - name: Probe HTTP once and prepare static site
+      - name: Probe public HTTP components and prepare static site
         env:
           TYPENGO_HEALTH_URL: ${{ vars.TYPENGO_HEALTH_URL || 'https://deploy-preview-98--josecalvo-cms.netlify.app/api/health' }}
         run: |
           mkdir -p site
           if test -f previous/status-history.json; then cp previous/status-history.json site/status-history.json; fi
           node collect.mjs site/status-history.json
-          cp index.html monitor.mjs site/
+          cp index.html style.css app.mjs model.mjs monitor.mjs site/
       - uses: actions/upload-artifact@v4
         with:
           name: typengo-status-history
           path: site/status-history.json
-          retention-days: 7
+          retention-days: 30
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

@@ -1,0 +1,11 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {TARGETS,normalize,append,daily,incidents,current} from "./model.mjs";
+import {probe,makeFeed} from "./collect.mjs";
+const target=TARGETS[0], other=TARGETS[1], start=Date.parse("2026-11-15T00:00:00Z");
+const sample=(n,state)=>({checkedAt:new Date(start+n*900000).toISOString(),checks:{cms:{state,httpStatus:state==="ok"?200:503,latencyMs:state==="ok"?10:null}}});
+test("migrates v1 and never fabricates web data",()=>{const s=sample(0,"ok");const d=normalize({version:1,target,samples:[{checkedAt:s.checkedAt,...s.checks.cms}]},target);assert.equal(d.samples[0].checks.cms.state,"ok");assert.equal(d.samples[0].checks.web,undefined);assert.equal(normalize(d,other).samples.length,0);});
+test("missing intervals are not uptime, duplicate slots deduplicated",()=>{const s=[sample(0,"ok"),sample(0,"ok"),sample(2,"unverified")];const [d]=daily(s,"cms",1,start+3*900000);assert.equal(d.slots,2);assert.equal(d.expected,4);assert.equal(d.ok,1);assert.equal(d.unverified,1);assert.equal(current(s,"cms",start+7*900000),"unknown");});
+test("incidents require two signals, recover twice, gaps are unknown",()=>{const s=[sample(0,"ok"),sample(1,"unverified"),sample(2,"unverified"),sample(3,"ok"),sample(4,"ok")];assert.equal(incidents(s.slice(0,2),"cms").length,0);assert.equal(incidents(s,"cms")[0].state,"resolved");assert.equal(incidents([sample(0,"unverified"),sample(1,"unverified"),sample(7,"ok")],"cms")[0].state,"unknown");assert.match(makeFeed({target,samples:s}),/Respuesta recuperada/);});
+test("probe validates contracts and rejects failures",async()=>{assert.equal((await probe(target,"cms",async()=>new Response(JSON.stringify({service:"typengo-cms",scope:"http-liveness",status:"ok"})))).state,"ok");assert.equal((await probe(target,"cms",async()=>new Response("{}"))).state,"unverified");assert.equal((await probe(target,"web",async()=>new Response("<title>TypeNGo</title>",{headers:{"content-type":"text/html"}}))).state,"ok");assert.equal((await probe(target,"web",async()=>new Response("wrong",{headers:{"content-type":"text/html"}}))).state,"unverified");await assert.rejects(()=>probe("https://example.com/"))});
+test("target switch clears old data",()=>assert.equal(append({version:2,target,samples:[sample(0,"ok")]},sample(1,"ok"),other).samples.length,1));
