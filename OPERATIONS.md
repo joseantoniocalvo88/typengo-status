@@ -1,12 +1,13 @@
-# TypeNGo Status — operations
-Independent GitHub Pages site at https://status.typengo.com/. The public repository contains only the monitor, not the CMS.
-- Workflow runs manually, on relevant changes and at :07, :22, :37, :52 UTC. GitHub may delay or skip runs.
-- Default target is the isolated stable staging endpoint https://typengo-staging.netlify.app/api/health. Override with repository variable TYPENGO_HEALTH_URL only when changing environment deliberately. Production target remains inactive until production is launched and the health endpoint is verified. Historical preview artifacts remain separate; do not merge samples across targets. Targets are allowlisted; changing target starts a separate history, never merges unrelated samples.
-- Four credential-free HTTP GET requests per run: /api/health, /, /login (form marker only), and /api/tigo (public config). No sign-in submission, AI inference, direct DB/storage query, or customer-site probe. Config demo mode can be healthy as config; it is not proof of inference.
-- Version 1 history migrates without inventing web checks. Bounded storage (12,000 samples); 90 UTC-day display. Missing slots are not uptime. Coverage is observed intervals, not SLA. Data older than 45 minutes is stale.
-- Two consecutive unverified responses within 45 minutes create an automatic event; two successes resolve it. A gap longer than 45 minutes makes an unresolved event's follow-up unknown. Feed at /feed.xml can be subscribed to using any RSS reader with alerts enabled. RSS is not email delivery; no external recipient is configured.
-- History artifact is kept 30 days per run. If no new run occurs before expiration, history restarts. No incident is a guarantee of absence of failures.
-- API content and database/media remain unmonitored; auth and AI rows report HTTP surface only. Actual sign-in and inference are not verified. 
-- On deployment check the workflow jobs, published JSON, RSS and HTTPS. Run node --test tests.mjs locally or in CI.
+# Independent TypeNGo Status operations
 
-- Newly confirmed events trigger a dedicated failing incident_notification job AFTER deployment; private delivery depends on the GitHub account's Actions notification settings. No email address or webhook added. Scheduled execution still requires real run evidence. RSS remains public.
+Authoritative deployed host: https://status.typengo.com/ on separate GitHub Pages repository joseantoniocalvo88/typengo-status. No CMS hosting dependency. The synchronized export is generated with node tooling/status/export.mjs /new/directory and includes its model, UI, collector, tests and workflow.
+
+The enabled workflow has cron 7,22,37,52 * * * * (UTC). A cron declaration/enabled menu is NOT proof that scheduled jobs are actually being dispatched. No schedule event was observed during this session. Do not claim continuous monitoring until one is visible in Actions. GitHub may delay scheduled workflows; gaps remain unknown.
+
+Four GET probes each run: /api/health, /, /login form HTML, /api/tigo public configuration. These do not test credential authentication, database content, storage persistence or model inference. API/database components remain unverified. No direct DB polling, no POST inference, no customer website scanning. At the configured regular interval this is 384 public GETs/day, plus manual/operator runs.
+
+History is a v2 status-history.json artifact retained for 30 days, bounded at 12,000 samples. Download by artifact ID uses merge-multiple:true so the file is restored at the expected root. A missing/corrupt prior artifact fails the job instead of silently starting over. Target changes intentionally start separate history. Two consecutive failures open an incident; two recoveries resolve it; gaps over 45 minutes become unknown. RSS is feed.xml. A new confirmed incident fails the separate notification job after deployment to signal through GitHub Actions. Actual private delivery depends on the owner's notification settings and has not been verified.
+
+Real run 43743562346 exposed a download-layout bug. Fixed at 461f9d01a6f668bc20937f43593c929bb008e7fd; successful run 43744617366 preserved the earlier sample and added the new one. No missing old sample was fabricated. Six model/probe tests cover migration, coverage, incidents/recovery/gaps, target changes and GET-only behavior.
+
+Current target is https://typengo-staging.netlify.app/api/health. Change repository variable TYPENGO_HEALTH_URL to https://typengo.com/api/health only after exact production release acceptance. Never show the staging probes as production health.
