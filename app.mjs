@@ -9,7 +9,7 @@ function render(){
  const mark=$("mark"),all=states.every(s=>s==="ok"),warn=states.some(s=>s==="unverified");
  mark.className="status-mark"+(all?" ok":warn?" warn":"");mark.textContent=all?"✓":warn?"!":"–";
  $("overview").textContent=all?"Servicios HTTP verificados operativos":warn?"Respuesta HTTP no verificada":"Datos insuficientes o no recientes";
- $("environment").textContent=data?.target?.startsWith("https://typengo.com/")?"PRODUCCIÓN / HTTP":data?"ENTORNO DE PRUEBAS / HTTP":"ENTORNO SIN VERIFICAR";
+ $("environment").textContent=data?.target?.startsWith("https://typengo.com/")?"PRODUCCIÓN / HTTP":data?.target?.startsWith("https://typengo-staging.netlify.app/")?"STAGING / HTTP":data?"PREVIEW / HTTP":"ENTORNO SIN VERIFICAR";
  const last=samples.at(-1);$("updated").textContent=last?"Última comprobación: "+fmt(last.checkedAt)+(now-Date.parse(last.checkedAt)>STALE?" · Datos desactualizados":""):"No hay comprobaciones registradas";
  $("coverage").textContent=monitored.length+" de "+COMPONENTS.length+" componentes con monitor HTTP · cada 15 min";
  const root=$("components");root.replaceChildren();

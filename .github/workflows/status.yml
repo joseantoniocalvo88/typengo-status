@@ -54,7 +54,7 @@ jobs:
           path: previous
       - name: Probe public HTTP components and prepare static site
         env:
-          TYPENGO_HEALTH_URL: ${{ vars.TYPENGO_HEALTH_URL || 'https://deploy-preview-98--josecalvo-cms.netlify.app/api/health' }}
+          TYPENGO_HEALTH_URL: ${{ vars.TYPENGO_HEALTH_URL || 'https://typengo-staging.netlify.app/api/health' }}
         run: |
           mkdir -p site
           if test -f previous/status-history.json; then cp previous/status-history.json site/status-history.json; fi

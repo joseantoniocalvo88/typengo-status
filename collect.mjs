@@ -25,7 +25,7 @@ export function makeFeed(data){
  return '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>TypeNGo Status</title><link>https://status.typengo.com/</link><description>Eventos automáticos HTTP de '+xml(environment)+'</description>'+events.map(({i,at,kind})=>'<item><title>'+xml(environment+" · "+COMPONENTS.find(c=>c.id===i.id).name+" · "+kind)+'</title><link>https://status.typengo.com/#incidents</link><guid isPermaLink="false">'+xml(data.target+"|"+i.id+"|"+i.startedAt+"|"+kind)+'</guid><pubDate>'+new Date(at).toUTCString()+'</pubDate><description>Evento detectado por dos comprobaciones consecutivas; no confirma una caída general.</description></item>').join("")+'</channel></rss>\n';
 }
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
- const target=process.env.TYPENGO_HEALTH_URL||TARGETS[0],file=process.argv[2]||"status-history.json";
+ const target=process.env.TYPENGO_HEALTH_URL||TARGETS[1],file=process.argv[2]||"status-history.json";
  if(!TARGETS.includes(target))throw Error("Unknown target");
  let previous={samples:[]};try{previous=JSON.parse(await readFile(file,"utf8"));}catch(e){if(e.code!=="ENOENT")throw e;}
  const checkedAt=new Date().toISOString();
