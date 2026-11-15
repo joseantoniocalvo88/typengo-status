@@ -1,0 +1,69 @@
+# Copy into a SEPARATE public status-only repository under .github/workflows/status.yml.
+# Never place this workflow in the main CMS repository.
+name: TypeNGo independent status
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+permissions:
+  contents: read
+concurrency:
+  group: independent-status
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Locate preceding status artifact
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typengo-status-history&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Download preceding samples
+        if: steps.previous.outputs.id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.previous.outputs.id }}
+          github-token: ${{ github.token }}
+          path: previous
+      - name: Probe HTTP once and prepare static site
+        env:
+          TYPENGO_HEALTH_URL: ${{ vars.TYPENGO_HEALTH_URL || 'https://deploy-preview-98--josecalvo-cms.netlify.app/api/health' }}
+        run: |
+          mkdir -p site
+          if test -f previous/status-history.json; then cp previous/status-history.json site/status-history.json; fi
+          node collect.mjs site/status-history.json
+          cp index.html monitor.mjs site/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typengo-status-history
+          path: site/status-history.json
+          retention-days: 7
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+  deploy:
+    runs-on: ubuntu-latest
+    needs: collect
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
