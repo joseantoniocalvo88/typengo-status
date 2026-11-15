@@ -48,10 +48,16 @@ jobs:
         if: steps.previous.outputs.id != ''
         uses: actions/download-artifact@v4
         with:
+          merge-multiple: true
           artifact-ids: ${{ steps.previous.outputs.id }}
           github-token: ${{ github.token }}
           run-id: ${{ steps.previous.outputs.run_id }}
           path: previous
+      - name: Verify restored history
+        if: steps.previous.outputs.id != ''
+        run: |
+          test -s previous/status-history.json
+          jq -e '.version == 2 and (.samples | length > 0)' previous/status-history.json
       - name: Probe public HTTP components and prepare static site
         env:
           TYPENGO_HEALTH_URL: ${{ vars.TYPENGO_HEALTH_URL || 'https://typengo-staging.netlify.app/api/health' }}
