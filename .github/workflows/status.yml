@@ -37,14 +37,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typengo-status-history&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty')
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=typengo-status-history&per_page=20" --jq '[.artifacts[] | select(.expired == false and .workflow_run.id != null)] | sort_by(.created_at) | last // empty')
+          if test -n "$artifact"; then
+            echo "id=$(jq -r '.id' <<< "$artifact")" >> "$GITHUB_OUTPUT"
+            echo "run_id=$(jq -r '.workflow_run.id' <<< "$artifact")" >> "$GITHUB_OUTPUT"
+          fi
       - name: Download preceding samples
         if: steps.previous.outputs.id != ''
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ steps.previous.outputs.id }}
           github-token: ${{ github.token }}
+          run-id: ${{ steps.previous.outputs.run_id }}
           path: previous
       - name: Probe public HTTP components and prepare static site
         env:
