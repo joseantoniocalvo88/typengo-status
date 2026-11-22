@@ -60,7 +60,7 @@ jobs:
           jq -e '.version == 2 and (.samples | length > 0)' previous/status-history.json
       - name: Probe public HTTP components and prepare static site
         env:
-          TYPENGO_HEALTH_URL: ${{ vars.TYPENGO_HEALTH_URL || 'https://typengo-staging.netlify.app/api/health' }}
+          TYPENGO_HEALTH_URL: https://typengo.com/api/health
         run: |
           mkdir -p site
           if test -f previous/status-history.json; then cp previous/status-history.json site/status-history.json; fi
