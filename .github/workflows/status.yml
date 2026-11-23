@@ -11,7 +11,9 @@ on:
       - '*.css'
       - '.github/workflows/status.yml'
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    # GitHub can delay or skip cron events. Request several opportunities per slot,
+    # but keep at most one history sample per ~15 minutes.
+    - cron: "*/5 * * * *"
 permissions:
   contents: read
 concurrency:
@@ -23,6 +25,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       new_incident: ${{ steps.events.outputs.new_incident }}
+      should_deploy: ${{ steps.due.outputs.should_deploy }}
     permissions:
       contents: read
       actions: read
@@ -58,7 +61,26 @@ jobs:
         run: |
           test -s previous/status-history.json
           jq -e '.version == 2 and (.samples | length > 0)' previous/status-history.json
+      - name: Avoid duplicate samples when GitHub dispatches nearby schedule runs
+        id: due
+        run: |
+          # Manual/push runs always publish an immediate check.
+          if test "$GITHUB_EVENT_NAME" != "schedule" || test ! -f previous/status-history.json; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          elif node --input-type=module -e '
+            import {readFileSync} from "node:fs";
+            const data=JSON.parse(readFileSync("previous/status-history.json","utf8"));
+            const last=Date.parse(data.samples?.at(-1)?.checkedAt);
+            const age=Date.now()-last;
+            process.exit(Number.isFinite(age) && age>=0 && age<12*60*1000 ? 0 : 1);
+          '; then
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Recent sample available; avoiding duplicate deploy."
+          else
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Probe public HTTP components and prepare static site
+        if: steps.due.outputs.should_deploy == 'true'
         env:
           TYPENGO_HEALTH_URL: https://typengo.com/api/health
         run: |
@@ -67,21 +89,26 @@ jobs:
           node collect.mjs site/status-history.json
           cp index.html style.css app.mjs model.mjs monitor.mjs site/
       - name: Detect newly confirmed incidents
+        if: steps.due.outputs.should_deploy == 'true'
         id: events
         run: |
           jq -r '"new_incident=" + (any(.[]; .state == "investigating") | tostring)' site/events.json >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
+        if: steps.due.outputs.should_deploy == 'true'
         with:
           name: typengo-status-history
           path: site/status-history.json
           retention-days: 30
       - uses: actions/configure-pages@v5
+        if: steps.due.outputs.should_deploy == 'true'
       - uses: actions/upload-pages-artifact@v4
+        if: steps.due.outputs.should_deploy == 'true'
         with:
           path: site
   deploy:
     runs-on: ubuntu-latest
     needs: collect
+    if: needs.collect.outputs.should_deploy == 'true'
     permissions:
       contents: read
       pages: write
