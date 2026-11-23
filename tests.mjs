@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {TARGETS,normalize,append,daily,incidents,current} from "./model.mjs";
 import {probe,makeFeed} from "./collect.mjs";
+import {checkCms} from "./monitor.mjs";
 const target=TARGETS[0], other=TARGETS[1], start=Date.parse("2026-11-15T00:00:00Z");
 const sample=(n,state)=>({checkedAt:new Date(start+n*900000).toISOString(),checks:{cms:{state,httpStatus:state==="ok"?200:503,latencyMs:state==="ok"?10:null}}});
 test("migrates v1 and never fabricates web data",()=>{const s=sample(0,"ok");const d=normalize({version:1,target,samples:[{checkedAt:s.checkedAt,...s.checks.cms}]},target);assert.equal(d.samples[0].checks.cms.state,"ok");assert.equal(d.samples[0].checks.web,undefined);assert.equal(normalize(d,other).samples.length,0);});
@@ -11,3 +12,16 @@ test("probe validates contracts and rejects failures",async()=>{assert.equal((aw
 test("target switch clears old data",()=>assert.equal(append({version:2,target,samples:[sample(0,"ok")]},sample(1,"ok"),other).samples.length,1));
 
 test("login form and Tigo config are GET probes only; inference is not attempted",async()=>{const calls=[];const mock=async (url,options)=>{calls.push({url,options});return url.endsWith("/api/tigo")?Response.json({mode:"live",turnstileSiteKey:"public_fixture",suggestions:[]}):new Response('<title>TypeNGo</title><input type="password">',{headers:{"content-type":"text/html"}});};assert.equal((await probe(target,"auth",mock)).state,"ok");assert.equal((await probe(target,"ai",mock)).state,"ok");assert.ok(calls.every(c=>!c.options.method&&!c.options.body&&c.options.credentials==="omit"));assert.equal((await probe(target,"ai",async()=>Response.json({mode:"live",suggestions:[]}))).state,"unverified");assert.equal((await probe(target,"auth",async()=>new Response("<title>TypeNGo</title>",{headers:{"content-type":"text/html"}}))).state,"unverified");});
+
+
+test("direct browser CMS fallback verifies only the public HTTP health contract",async()=>{
+ let calls=0;
+ const result=await checkCms(async (url,options)=>{
+  calls++;assert.equal(url,TARGETS[2]);assert.equal(options.credentials,"omit");assert.equal(options.redirect,"error");
+  return Response.json({service:"typengo-cms",scope:"http-liveness",status:"ok"});
+ },TARGETS[2]);
+ assert.equal(result.state,"ok");
+ assert.equal(calls,1);
+ assert.equal((await checkCms(async()=>Response.json({status:"ok"}),TARGETS[2])).state,"unverified");
+ assert.equal((await checkCms(async()=>{throw Error("offline");},TARGETS[2])).state,"unverified");
+});
