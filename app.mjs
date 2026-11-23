@@ -16,7 +16,7 @@ function render(){
  live.textContent=liveOk?"Verificación directa desde este navegador: CMS HTTP correcto · "+fmt(liveCms.checkedAt)+" (el histórico se muestra aparte).":liveFailed?"No se pudo verificar el CMS desde este navegador · "+fmt(liveCms.checkedAt)+"; no confirma una caída.":"Comprobando el CMS en directo desde tu navegador…";
  $("environment").textContent=data?.target?.startsWith("https://typengo.com/")?"PRODUCCIÓN / HTTP":data?.target?.startsWith("https://typengo-staging.netlify.app/")?"STAGING / HTTP":data?"PREVIEW / HTTP":"ENTORNO SIN VERIFICAR";
  const last=samples.at(-1);$("updated").textContent=last?"Última comprobación: "+fmt(last.checkedAt)+(now-Date.parse(last.checkedAt)>STALE?" · Datos desactualizados":""):"No hay comprobaciones registradas";
- $("coverage").textContent=monitored.length+" de "+COMPONENTS.length+" componentes con monitor HTTP · cada 15 min";
+ $("coverage").textContent=monitored.length+" de "+COMPONENTS.length+" componentes con monitor HTTP · muestreo objetivo cada 15 min";
  const root=$("components");root.replaceChildren();
  for(const c of COMPONENTS){
  const section=el("article","component"),head=el("div","component-head"),name=el("div");name.append(el("h3","",c.name),el("p","",c.description));head.append(name);
@@ -25,7 +25,7 @@ function render(){
  if(c.monitored){const b=daily(samples,c.id,days,now),bars=el("div","bars"),info=el("p","bar-info","Selecciona un día para consultar las comprobaciones.");bars.style.setProperty("--days",days);bars.setAttribute("role","group");bars.setAttribute("aria-label","Histórico diario de "+c.name);
  for(const d of b){const state=d.unverified?"warn":d.ok?"ok":"none";const bar=el("button","bar "+state+(d.slots&&d.slots<d.expected?" partial":""));const desc=d.date+" UTC · "+d.ok+" correctas, "+d.unverified+" no verificadas, "+d.slots+" de "+d.expected+" intervalos con datos";bar.type="button";bar.title=desc;bar.setAttribute("aria-label",desc);bar.addEventListener("click",()=>{info.textContent=desc;});bar.addEventListener("focus",()=>{info.textContent=desc;});bars.append(bar);}
  const observed=b.reduce((a,d)=>a+d.slots,0),expected=b.reduce((a,d)=>a+d.expected,0),healthy=b.reduce((a,d)=>a+d.ok,0);
- const cap=el("div","bar-caption");cap.append(el("span","",days+" días atrás"),el("span","",Math.round(100*observed/expected)+"% cobertura · "+(observed?(100*healthy/observed).toFixed(2)+"% comprobaciones correctas":"sin datos")),el("span","","Hoy"));section.append(bars,cap,info);
+ const cap=el("div","bar-caption");cap.append(el("span","",days+" días atrás"),el("span","",(observed && 100*observed/expected<.1?"<0,1":(100*observed/expected).toFixed(1).replace(".",","))+"% cobertura · "+(observed?(100*healthy/observed).toFixed(2)+"% comprobaciones correctas":"sin datos")),el("span","","Hoy"));section.append(bars,cap,info);
  const last=latest(samples,c.id);if(last?.checks[c.id].state==="ok"&&last.checks[c.id].latencyMs!=null)section.append(el("p","","Última respuesta registrada: "+last.checks[c.id].latencyMs+" ms"));}
  if(c.id==="cms"&&liveRecent)section.append(el("p","live-component"+(liveOk?" ok":""),
    liveOk?"Comprobación actual desde el navegador: HTTP correcto; no contabilizada como dato histórico.":"Comprobación del navegador no verificada; no es una caída confirmada."));
