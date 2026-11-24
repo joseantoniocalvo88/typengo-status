@@ -1,4 +1,4 @@
-import { DAY, INTERVAL, PRODUCTION_TARGET, allIncidents, dateKey, normalize } from "../model.mjs";
+import { DAY, INVALID_CLOUDFLARE_OBSERVATION, INTERVAL, PRODUCTION_TARGET, allIncidents, dateKey, normalize } from "../model.mjs";
 import { collectChecks } from "../probe.mjs";
 
 const SITE = "https://status.typengo.com";
@@ -30,7 +30,7 @@ export async function seedHistory(db, fetchImpl = globalThis.fetch) {
 
   const response = await fetchImpl(HISTORY_URL, {
     cache: "no-store",
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(8000)
   });
   if (!response.ok) throw new Error("Previous history unavailable: HTTP " + response.status);
@@ -56,7 +56,7 @@ WITH observations AS (
   SELECT day, value AS sample, json_extract(value, '$.checkedAt') AS checked_at,
          CAST(unixepoch(json_extract(value, '$.checkedAt')) / 900 AS INTEGER) AS slot, source
   FROM status_days, json_each(status_days.samples)
-  WHERE day >= ?
+  WHERE day >= ? AND (source <> 'cloudflare' OR json_extract(value, '$.checkedAt') <> ?)
 ),
 ranked AS (
   SELECT day, sample, checked_at, row_number() OVER (
@@ -72,7 +72,7 @@ FROM recent GROUP BY day ORDER BY day
 `;
 
 async function readDays(db, now, days) {
-  const { results } = await db.prepare(READ_DAYS).bind(dateKey(now - days * DAY)).all();
+  const { results } = await db.prepare(READ_DAYS).bind(dateKey(now - days * DAY), INVALID_CLOUDFLARE_OBSERVATION).all();
   return results;
 }
 

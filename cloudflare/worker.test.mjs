@@ -31,7 +31,7 @@ function endpoints(baseline, state = "ok", calls = []) {
   return async (url, options) => {
     calls.push(String(url));
     assert.equal(options.method, undefined);
-    assert.equal(options.redirect, "error");
+    assert.equal(options.redirect, "manual");
     if (url === "https://status.typengo.com/status-history.json") return Response.json(baseline);
     if (state !== "ok") return new Response("unavailable", { status: 503 });
     if (url === PRODUCTION_TARGET) return Response.json({service:"typengo-cms",scope:"http-liveness",status:"ok"});
@@ -107,4 +107,17 @@ test("streams read-only public history with restricted browser access", async ()
   assert.equal((await worker.fetch(new Request("https://example.com/"), env)).status, 404);
   assert.equal((await worker.fetch(new Request("https://example.com/status-history.json", { method: "POST" }), env)).status, 404);
   assert.equal((await worker.fetch(new Request("https://example.com/status-history.json"), { STATUS_DB: database() })).status, 503);
+});
+
+test("keeps the invalid rollout attempt out of public history and fallback synchronization", async () => {
+  const db = database();
+  const invalidAt = Date.parse("2026-11-24T19:30:24.953Z");
+  const backup = history([sample(-1), sample(10, "ok", "github")]);
+  const result = await collectScheduled(invalidAt - 953, db, {
+    now: () => invalidAt,
+    fetchImpl: endpoints(backup, "unverified")
+  });
+  assert.equal(result.recorded, true);
+  assert.deepEqual((await readHistory(db, invalidAt)).samples.map(s => s.checkedAt), [at(-1), at(10)]);
+  assert.deepEqual(mergeHistories(backup, history([result.sample])).samples.map(s => s.checkedAt), [at(-1), at(10)]);
 });

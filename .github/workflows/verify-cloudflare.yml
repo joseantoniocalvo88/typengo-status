@@ -47,21 +47,22 @@ jobs:
             const slots = data.samples.map(sample => Math.floor(Date.parse(sample.checkedAt) / interval));
             assert.equal(new Set(slots).size, slots.length, "Duplicate observation intervals");
             const previous = data.samples.filter(sample => Date.parse(sample.checkedAt) < since);
-            assert.ok(previous.length, "Earlier published history is absent");
+
 
             const cron = data.samples.filter(sample => {
               const scheduled = Date.parse(sample.scheduledAt);
               const checked = Date.parse(sample.checkedAt);
               return sample.source === "cloudflare" && scheduled >= since &&
-                scheduled % interval === 0 && checked >= scheduled && checked < scheduled + interval &&
-                required.every(id => ["ok", "unverified"].includes(sample.checks?.[id]?.state));
+                checked >= scheduled && Math.floor(checked / interval) === Math.floor(scheduled / interval) &&
+                required.every(id => sample.checks?.[id]?.state === "ok" && Number.isInteger(sample.checks[id].httpStatus));
             }).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
 
             console.log(new Date().toISOString(), "Cloudflare samples:", cron.length, "earlier observations:", previous.length);
+            const slotOf = sample => Math.floor(Date.parse(sample.scheduledAt) / interval);
             const ending = cron.findIndex((sample, i) => i >= 2 &&
-              Date.parse(sample.scheduledAt) - Date.parse(cron[i - 1].scheduledAt) === interval &&
-              Date.parse(cron[i - 1].scheduledAt) - Date.parse(cron[i - 2].scheduledAt) === interval);
-            if (ending >= 2) {
+              slotOf(sample) - slotOf(cron[i - 1]) === 1 &&
+              slotOf(cron[i - 1]) - slotOf(cron[i - 2]) === 1);
+            if (previous.length && ending >= 2) {
               const samples = cron.slice(ending - 2, ending + 1);
               const rows = samples.map(sample => "| " + sample.scheduledAt + " | " + sample.checkedAt + " | " +
                 required.map(id => id + " " + (sample.checks[id].httpStatus ?? "timeout") + " (" + sample.checks[id].state + ")").join(", ") + " |");
