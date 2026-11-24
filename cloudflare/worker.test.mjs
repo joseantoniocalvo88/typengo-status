@@ -93,7 +93,7 @@ test("merges duplicate time slots in favor of Cloudflare and runs the GitHub fal
   assert.equal(buildHistory(recentBackup, direct, PRODUCTION_TARGET, START + 2 * INTERVAL).wantsBackup, false);
 });
 
-test("provides read-only public history and RSS with restricted browser access", async () => {
+test("streams read-only public history with restricted browser access", async () => {
   const db = database();
   await collectScheduled(Date.now(), db, { fetchImpl: endpoints(history([sample(-1)])) });
   const env = { STATUS_DB: db };
@@ -101,9 +101,9 @@ test("provides read-only public history and RSS with restricted browser access",
   assert.equal(result.status, 200);
   assert.equal(result.headers.get("Access-Control-Allow-Origin"), "https://status.typengo.com");
   assert.ok((await result.json()).samples.some(sample => sample.source === "cloudflare"));
-  const rss = await worker.fetch(new Request("https://example.com/feed.xml"), env);
-  assert.match(rss.headers.get("content-type"), /rss/);
-  assert.match(await rss.text(), /<rss/);
+  const recent = await worker.fetch(new Request("https://example.com/status-history.json?recent=1"), env);
+  assert.equal(recent.status, 200);
+  assert.ok((await recent.json()).samples.some(sample => sample.source === "cloudflare"));
   assert.equal((await worker.fetch(new Request("https://example.com/"), env)).status, 404);
   assert.equal((await worker.fetch(new Request("https://example.com/status-history.json", { method: "POST" }), env)).status, 404);
   assert.equal((await worker.fetch(new Request("https://example.com/status-history.json"), { STATUS_DB: database() })).status, 503);

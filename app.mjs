@@ -60,15 +60,13 @@ async function refreshHistory(){
  if(historyInProgress)return;
  historyInProgress=true;
  try{
-  const [primary,backup]=await Promise.allSettled([readHistory(workerEndpoint+"/status-history.json"),readHistory("./status-history.json")]);
-  const remote=primary.status==="fulfilled"?primary.value:null;
-  const fallback=backup.status==="fulfilled"?backup.value:null;
+  const primaryUrl=workerEndpoint+"/status-history.json"+(data?.samples.length?"?recent=1":"");
+  const remote=await readHistory(primaryUrl).catch(()=>null);
+  const newest=remote?.samples.findLast(sample=>sample.source==="cloudflare");
+  const age=newest?Date.now()-Date.parse(newest.checkedAt):Infinity;
+  const fallback=!data||age<0||age>=27*60*1000?await readHistory("./status-history.json").catch(()=>null):null;
   if(remote||fallback){
    data=mergeHistories(remote,fallback,data);
-   const cloudflare=remote?.samples.findLast(sample=>sample.source==="cloudflare");
-   const age=cloudflare?Date.now()-Date.parse(cloudflare.checkedAt):Infinity;
-   const feed=age>=0&&age<27*60*1000?workerEndpoint+"/feed.xml":"./feed.xml";
-   document.querySelectorAll("[data-status-rss]").forEach(link=>link.href=feed);
    render();
   }else if(!data){
    $("updated").textContent="El histórico no está disponible; no se puede confirmar el estado.";
