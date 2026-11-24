@@ -3,12 +3,19 @@
 name: TypeNGo independent status
 on:
   workflow_dispatch:
+    inputs:
+      source:
+        description: 'Trigger source (manual or Cloudflare clock)'
+        required: false
+        type: string
+        default: 'manual'
   push:
     branches: [main]
     paths:
       - '*.mjs'
       - '*.html'
       - '*.css'
+      - 'cloudflare/**'
       - '.github/workflows/status.yml'
   schedule:
     # GitHub can delay or skip cron events. Request several opportunities per slot,
@@ -36,7 +43,7 @@ jobs:
         with:
           node-version: 22
       - name: Run monitor tests
-        run: node --test tests.mjs
+        run: node --test tests.mjs cloudflare/worker.test.mjs
       - name: Locate preceding status artifact
         id: previous
         env:
@@ -63,9 +70,11 @@ jobs:
           jq -e '.version == 2 and (.samples | length > 0)' previous/status-history.json
       - name: Avoid duplicate samples when GitHub dispatches nearby schedule runs
         id: due
+        env:
+          STATUS_TRIGGER: ${{ inputs.source || '' }}
         run: |
           # Manual/push runs always publish an immediate check.
-          if test "$GITHUB_EVENT_NAME" != "schedule" || test ! -f previous/status-history.json; then
+          if { test "$GITHUB_EVENT_NAME" != "schedule" && test "$STATUS_TRIGGER" != "cloudflare"; } || test ! -f previous/status-history.json; then
             echo "should_deploy=true" >> "$GITHUB_OUTPUT"
           elif node --input-type=module -e '
             import {readFileSync} from "node:fs";
