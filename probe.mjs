@@ -6,7 +6,7 @@ export async function probe(url,kind="cms",fetchImpl=globalThis.fetch){
  const destination=kind==="web"?new URL("/",url).href:kind==="auth"?new URL("/login",url).href:kind==="ai"?new URL("/api/tigo",url).href:url;
  const start=performance.now();let status=null;
  try{
- const res=await fetchImpl(destination,{redirect:"error",cache:"no-store",credentials:"omit",signal:AbortSignal.timeout(8000)});
+ const res=await fetchImpl(destination,{redirect:"manual",cache:"no-store",credentials:"omit",signal:AbortSignal.timeout(8000)});
  status=res.status;if(!res.ok)throw Error("HTTP");
  let valid=false;
  if(kind==="cms"){const body=await res.json();valid=body?.service==="typengo-cms"&&body?.scope==="http-liveness"&&body?.status==="ok";}

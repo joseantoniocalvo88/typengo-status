@@ -25,3 +25,12 @@ test("direct browser CMS fallback verifies only the public HTTP health contract"
  assert.equal((await checkCms(async()=>Response.json({status:"ok"}),TARGETS[2])).state,"unverified");
  assert.equal((await checkCms(async()=>{throw Error("offline");},TARGETS[2])).state,"unverified");
 });
+
+test("reports redirects without following them", async () => {
+  const result = await probe(target, "cms", async (_url, options) => {
+    assert.equal(options.redirect, "manual");
+    return Response.redirect("https://typengo.com/", 302);
+  });
+  assert.equal(result.state, "unverified");
+  assert.equal(result.httpStatus, 302);
+});
