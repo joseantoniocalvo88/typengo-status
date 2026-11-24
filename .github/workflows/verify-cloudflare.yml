@@ -1,0 +1,79 @@
+name: Verify Cloudflare Status cron
+run-name: Verify three Cloudflare Status samples
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: Start of the observation window (ISO 8601 UTC)
+        required: true
+        type: string
+permissions: {}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 57
+    env:
+      STATUS_SINCE: ${{ inputs.since }}
+    steps:
+      - name: Read live history until three consecutive real cron intervals appear
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import { appendFile } from "node:fs/promises";
+          import { setTimeout as sleep } from "node:timers/promises";
+
+          const url = "https://typengo-status-clock.joseantonio-calvo88.workers.dev/status-history.json";
+          const since = Date.parse(process.env.STATUS_SINCE);
+          const interval = 15 * 60 * 1000;
+          const required = ["cms", "web", "auth", "ai"];
+          assert.ok(Number.isFinite(since) && since <= Date.now(), "Supply a valid past UTC timestamp.");
+          const deadline = Date.now() + 54 * 60 * 1000;
+
+          while (Date.now() < deadline) {
+            let data;
+            try {
+              const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10000) });
+              if (!response.ok) throw new Error("HTTP " + response.status);
+              data = await response.json();
+            } catch (error) {
+              console.log(new Date().toISOString(), "History unavailable:", error.message);
+              await sleep(60000);
+              continue;
+            }
+
+            assert.equal(data.version, 2);
+            assert.equal(data.target, "https://typengo.com/api/health");
+            const slots = data.samples.map(sample => Math.floor(Date.parse(sample.checkedAt) / interval));
+            assert.equal(new Set(slots).size, slots.length, "Duplicate observation intervals");
+            const previous = data.samples.filter(sample => Date.parse(sample.checkedAt) < since);
+            assert.ok(previous.length, "Earlier published history is absent");
+
+            const cron = data.samples.filter(sample => {
+              const scheduled = Date.parse(sample.scheduledAt);
+              const checked = Date.parse(sample.checkedAt);
+              return sample.source === "cloudflare" && scheduled >= since &&
+                scheduled % interval === 0 && checked >= scheduled && checked < scheduled + interval &&
+                required.every(id => ["ok", "unverified"].includes(sample.checks?.[id]?.state));
+            }).sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+
+            console.log(new Date().toISOString(), "Cloudflare samples:", cron.length, "earlier observations:", previous.length);
+            const ending = cron.findIndex((sample, i) => i >= 2 &&
+              Date.parse(sample.scheduledAt) - Date.parse(cron[i - 1].scheduledAt) === interval &&
+              Date.parse(cron[i - 1].scheduledAt) - Date.parse(cron[i - 2].scheduledAt) === interval);
+            if (ending >= 2) {
+              const samples = cron.slice(ending - 2, ending + 1);
+              const rows = samples.map(sample => "| " + sample.scheduledAt + " | " + sample.checkedAt + " | " +
+                required.map(id => id + " " + (sample.checks[id].httpStatus ?? "timeout") + " (" + sample.checks[id].state + ")").join(", ") + " |");
+              console.log(JSON.stringify({ previous: previous.length, samples }));
+              await appendFile(process.env.GITHUB_STEP_SUMMARY, [
+                "## Observed Cloudflare cron samples (UTC)", "",
+                "| Scheduled | Actual | Observations |", "| --- | --- | --- |",
+                ...rows, "", "Earlier published observations retained: " + previous.length, ""
+              ].join("\n"));
+              process.exit(0);
+            }
+            await sleep(60000);
+          }
+          throw new Error("Three consecutive scheduled samples were not observed in the window.");
+          JS

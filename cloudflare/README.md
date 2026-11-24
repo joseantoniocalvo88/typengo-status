@@ -15,11 +15,11 @@ node cloudflare/bundle.mjs > worker-dashboard.mjs
 node --check worker-dashboard.mjs
 ```
 
-Wrangler usa directamente `cloudflare/wrangler.jsonc`. El bundle reproduce el despliegue manual en el editor de Cloudflare. El código comparte contratos HTTP y reglas de incidencias con GitHub. Este despliegue usa el binding de la base y prescinde de credenciales de GitHub.
+Wrangler usa directamente `cloudflare/wrangler.jsonc`. El bundle reproduce el despliegue manual en el editor de Cloudflare. Después de un despliegue desde el editor del panel, revisa el cron y vuelve a guardarlo si falta. El segundo despliegue manual retiró el trigger anterior. El código comparte contratos HTTP y reglas de incidencias con GitHub. Este despliegue usa el binding de la base y prescinde de credenciales de GitHub.
 
 ## Verificación operativa
 
-1. Confirmar tres cron consecutivos con `recorded: true` en Observability. Comparar `scheduledAt` y `checkedAt`.
+1. Ejecutar **Verify Cloudflare Status cron** en GitHub Actions con el inicio de la ventana UTC. Confirmar tres cron consecutivos con `recorded: true` en Observability. Comparar `scheduledAt` y `checkedAt`.
 2. Consultar el JSON público y verificar que incluye las tres muestras con `source: "cloudflare"`, los cuatro resultados por muestra y las fechas anteriores a la migración.
 3. Comprobar que el fallback de GitHub restaura el artefacto anterior y publica una instantánea funcional.
 4. La prueba de notificaciones se dispara manualmente con `source=notification-test`. Falla a propósito y omite colector y despliegue. Confirmar por separado la recepción privada si está habilitada.
