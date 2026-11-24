@@ -15,7 +15,9 @@ node cloudflare/bundle.mjs > worker-dashboard.mjs
 node --check worker-dashboard.mjs
 ```
 
-Wrangler usa directamente `cloudflare/wrangler.jsonc`. El bundle reproduce el despliegue manual en el editor de Cloudflare. Después de un despliegue desde el editor del panel, revisa el cron y vuelve a guardarlo si falta. El segundo despliegue manual retiró el trigger anterior. El código comparte contratos HTTP y reglas de incidencias con GitHub. Este despliegue usa el binding de la base y prescinde de credenciales de GitHub.
+Cloudflare Workers Builds está vinculado a `joseantoniocalvo88/typengo-status` en `main`. Ejecuta las pruebas de arriba y despliega con `npx --yes wrangler@4 deploy --config cloudflare/wrangler.jsonc`. Las builds de preview están deshabilitadas.
+
+El cron, las rutas y el binding D1 se aplican desde la configuración de Wrangler. En tres intentos de configuración manual, el panel mostró la próxima ejecución hasta recargar la página. Tras un cambio, comprueba la salida de Wrangler, la persistencia del cron en Cloudflare y las muestras reales en el histórico. El runtime del Worker no usa credenciales de GitHub.
 
 ## Verificación operativa
 
