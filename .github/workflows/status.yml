@@ -1,14 +1,17 @@
 # Copy into a SEPARATE public status-only repository under .github/workflows/status.yml.
 # Never place this workflow in the main CMS repository.
 name: TypeNGo independent status
+run-name: TypeNGo Status (${{ inputs.source || github.event_name }})
 on:
   workflow_dispatch:
     inputs:
       source:
-        description: 'Trigger source (manual or Cloudflare clock)'
+        description: 'manual or notification-test (simulated alert only)'
         required: false
         type: string
         default: 'manual'
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -24,10 +27,22 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: independent-status
+  group: ${{ github.event_name == 'pull_request' && github.ref || 'independent-status' }}
   cancel-in-progress: false
 jobs:
+  tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests.mjs cloudflare/worker.test.mjs
+      - run: node cloudflare/bundle.mjs > "$RUNNER_TEMP/worker.mjs" && node --check "$RUNNER_TEMP/worker.mjs"
   collect:
+    if: github.event_name != 'pull_request' && inputs.source != 'notification-test'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -63,38 +78,32 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ steps.previous.outputs.run_id }}
           path: previous
+      - name: Restore the live Pages snapshot if the artifact has expired
+        if: steps.previous.outputs.id == ''
+        run: |
+          mkdir -p previous
+          curl --fail --silent --show-error --max-time 12 --output previous/status-history.json https://status.typengo.com/status-history.json
       - name: Verify restored history
-        if: steps.previous.outputs.id != ''
         run: |
           test -s previous/status-history.json
-          jq -e '.version == 2 and (.samples | length > 0)' previous/status-history.json
-      - name: Avoid duplicate samples when GitHub dispatches nearby schedule runs
-        id: due
-        env:
-          STATUS_TRIGGER: ${{ inputs.source || '' }}
-        run: |
-          # Manual/push runs always publish an immediate check.
-          if { test "$GITHUB_EVENT_NAME" != "schedule" && test "$STATUS_TRIGGER" != "cloudflare"; } || test ! -f previous/status-history.json; then
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-          elif node --input-type=module -e '
-            import {readFileSync} from "node:fs";
-            const data=JSON.parse(readFileSync("previous/status-history.json","utf8"));
-            const last=Date.parse(data.samples?.at(-1)?.checkedAt);
-            const age=Date.now()-last;
-            process.exit(Number.isFinite(age) && age>=0 && age<12*60*1000 ? 0 : 1);
-          '; then
-            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "Recent sample available; avoiding duplicate deploy."
-          else
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Probe public HTTP components and prepare static site
-        if: steps.due.outputs.should_deploy == 'true'
-        env:
-          TYPENGO_HEALTH_URL: https://typengo.com/api/health
+          jq -e '(.version == 1 or .version == 2) and .target == "https://typengo.com/api/health" and (.samples | length > 0)' previous/status-history.json
+      - name: Try to retrieve the direct Cloudflare history
         run: |
           mkdir -p site
-          if test -f previous/status-history.json; then cp previous/status-history.json site/status-history.json; fi
+          if curl --fail --silent --show-error --max-time 10 --output cloudflare-history.tmp 'https://typengo-status-clock.joseantonio-calvo88.workers.dev/status-history.json' &&
+             jq -e '.version == 2 and .target == "https://typengo.com/api/health" and (.samples | length > 0)' cloudflare-history.tmp > /dev/null; then
+            mv cloudflare-history.tmp cloudflare-history.json
+          else
+            echo "Cloudflare history unavailable; the GitHub backup remains eligible."
+          fi
+      - name: Synchronize Cloudflare observations or run the backup
+        id: due
+        env:
+          TYPENGO_HEALTH_URL: https://typengo.com/api/health
+          STATUS_WORKER_HISTORY: cloudflare-history.json
+          STATUS_FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          cp previous/status-history.json site/status-history.json
           node collect.mjs site/status-history.json
           cp index.html style.css app.mjs model.mjs monitor.mjs site/
       - name: Detect newly confirmed incidents
@@ -137,5 +146,16 @@ jobs:
     steps:
       - name: Signal newly confirmed incident through GitHub Actions
         run: |
-          echo "::error::A new HTTP incident was confirmed. See https://status.typengo.com/ for details."
+          echo "::error::A newly observed HTTP incident was confirmed. See https://status.typengo.com/ for details."
+          exit 1
+
+  notification_test:
+    if: github.event_name == 'workflow_dispatch' && inputs.source == 'notification-test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Simulate notification without probing or updating production
+        run: |
+          echo "::error::TEST ONLY — simulated TypeNGo Status notification. No service incident."
           exit 1

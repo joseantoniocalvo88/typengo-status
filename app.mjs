@@ -1,8 +1,8 @@
-import {TARGETS,COMPONENTS,normalize,current,daily,allIncidents,latest,STALE} from "./model.mjs";
+import {TARGETS,COMPONENTS,mergeHistories,current,daily,allIncidents,latest,STALE} from "./model.mjs";
 import {checkCms} from "./monitor.mjs";
 const $=id=>document.getElementById(id),el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 const fmt=s=>new Date(s).toLocaleString("es-ES",{dateStyle:"medium",timeStyle:"short"});
-let data=null,days=90,liveCms={state:"pending",checkedAt:null},browserCheckInProgress=false;
+let data=null,days=90,liveCms={state:"pending",checkedAt:null},browserCheckInProgress=false,historyInProgress=false;
 const productionHealth="https://typengo.com/api/health";
 const label=s=>s==="ok"?"HTTP correcto":s==="unverified"?"No verificado":"Sin datos recientes";
 function render(){
@@ -48,8 +48,38 @@ async function refreshBrowserCheck(){
 }
 document.querySelectorAll("[data-days]").forEach(b=>b.addEventListener("click",()=>{days=Number(b.dataset.days);document.querySelectorAll("[data-days]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));render();}));
 $("check").addEventListener("click",async()=>{$("manual-detail").textContent="Comprobando…";await refreshBrowserCheck();$("manual-detail").textContent=(liveCms.state==="ok"?"CMS HTTP correcto.":"CMS no verificado.")+" · "+fmt(liveCms.checkedAt)+" · No modifica el histórico.";});
+const workerEndpoint="https://typengo-status-clock.joseantonio-calvo88.workers.dev";
+async function readHistory(url){
+ const response=await fetch(url,{cache:"no-store",signal:AbortSignal.timeout(7000)});
+ if(!response.ok)throw Error("Missing history");
+ const raw=await response.json();
+ if(![1,2].includes(raw.version)||!TARGETS.includes(raw.target)||!Array.isArray(raw.samples))throw Error("Invalid history");
+ return raw;
+}
+async function refreshHistory(){
+ if(historyInProgress)return;
+ historyInProgress=true;
+ try{
+  const [primary,backup]=await Promise.allSettled([readHistory(workerEndpoint+"/status-history.json"),readHistory("./status-history.json")]);
+  const remote=primary.status==="fulfilled"?primary.value:null;
+  const fallback=backup.status==="fulfilled"?backup.value:null;
+  if(remote||fallback){
+   data=mergeHistories(remote,fallback,data);
+   const cloudflare=remote?.samples.findLast(sample=>sample.source==="cloudflare");
+   const age=cloudflare?Date.now()-Date.parse(cloudflare.checkedAt):Infinity;
+   const feed=age>=0&&age<27*60*1000?workerEndpoint+"/feed.xml":"./feed.xml";
+   document.querySelectorAll("[data-status-rss]").forEach(link=>link.href=feed);
+   render();
+  }else if(!data){
+   $("updated").textContent="El histórico no está disponible; no se puede confirmar el estado.";
+  }
+ }finally{historyInProgress=false;}
+}
+function refreshVisible(){
+ if(document.visibilityState==="visible"){refreshBrowserCheck();refreshHistory();}
+}
 render();
 refreshBrowserCheck();
-setInterval(()=>{if(document.visibilityState==="visible")refreshBrowserCheck();},60*1000);
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")refreshBrowserCheck();});
-fetch("./status-history.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw Error("Missing history");return r.json();}).then(raw=>{if(![1,2].includes(raw.version)||!TARGETS.includes(raw.target))throw Error("Invalid history");data=normalize(raw,raw.target);render();}).catch(()=>{$("updated").textContent="El histórico no está disponible; no se puede confirmar el estado.";});
+refreshHistory();
+setInterval(refreshVisible,60*1000);
+document.addEventListener("visibilitychange",refreshVisible);
