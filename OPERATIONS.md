@@ -11,3 +11,9 @@ History is a v2 status-history.json artifact retained for 30 days, bounded at 12
 Real run 43743562346 exposed a download-layout bug. Fixed at 461f9d01a6f668bc20937f43593c929bb008e7fd; successful run 43744617366 preserved the earlier sample and added the new one. No missing old sample was fabricated. Six model/probe tests cover migration, coverage, incidents/recovery/gaps, target changes and GET-only behavior.
 
 Production launch accepted on 2026-11-22. Current HTTP target is https://typengo.com/api/health, set directly in .github/workflows/status.yml (not controlled by the former TYPENGO_HEALTH_URL repository variable). Monitoring remains limited to the four documented public GET probes; API/database/authentication/inference are not covered. The historical samples for staging do not count as production measurements.
+
+## Recogida directa desde Cloudflare
+
+El Worker `typengo-status-clock` realiza las cuatro sondas HTTP cada 15 minutos. D1 almacena la hora de las observaciones reales y el histórico original importado. GitHub Pages conserva el diseño y su copia estática. El cron de Actions sigue activo y puede recoger una muestra de respaldo cuando las observaciones de Cloudflare envejecen. Se mantiene la consulta HTTP independiente del navegador por cada minuto visible.
+
+Ver [la configuración, pruebas y comprobaciones operativas](cloudflare/README.md). Las referencias a GitHub como único colector en las notas históricas de arriba reflejan el despliegue anterior a esta migración.

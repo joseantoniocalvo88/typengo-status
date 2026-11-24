@@ -1,23 +1,27 @@
-# Activar el reloj externo de TypeNGo Status
+# Monitor directo de TypeNGo en Cloudflare
 
-El Worker dispara el flujo de comprobaciones existente desde Cloudflare cada 15 minutos. El colector, histórico real, RSS y publicación en GitHub Pages siguen en GitHub. Los retrasos de la cola de Actions siguen siendo posibles; no se promete una periodicidad exacta.
+- Worker `typengo-status-clock`, cron `*/15 * * * *` en UTC y binding D1 `STATUS_DB` a `typengo-status-history`.
+- El Worker recoge las cuatro sondas HTTP de producción y registra la hora real de inicio y la hora programada. D1 conserva las muestras por día y admite una escritura por intervalo efectivo de 15 minutos. Los intervalos omitidos quedan sin datos.
+- La primera ejecución que obtiene el histórico de GitHub Pages lo archiva en D1 con las horas originales. Se conserva la fuente estática de respaldo. La página combina los dos orígenes y, ante una coincidencia de intervalo, usa la muestra directa de Cloudflare.
+- El Worker sirve `/status-history.json` y `/feed.xml`. El navegador continúa con su comprobación HTTP individual cada 60 segundos para la pestaña visible. Las peticiones HTTP públicas del Worker son de lectura.
+- GitHub Pages sigue sirviendo la aplicación estática. El cron de GitHub conserva su programación original y sincroniza las muestras de Cloudflare. Si el último dato de Cloudflare lleva 27 minutos sin actualizarse, el flujo puede tomar una muestra de respaldo cuando haya pasado un intervalo desde la última observación. Los dispatch manuales permiten una comprobación inmediata.
+- Cloudflare registra aperturas y recuperaciones en los logs privados del Worker. GitHub Actions señala las nuevas aperturas al sincronizarlas. El flujo `notification-test` verifica la señal de Actions de forma aislada. Su entrega privada depende de la configuración de notificaciones del propietario de la cuenta.
 
-## Activación (propietario de las cuentas)
+## Implementación y pruebas
 
-1. Crear un fine-grained personal access token de GitHub, restringido exclusivamente a `joseantoniocalvo88/typengo-status`, con permiso de repositorio Actions: Read and write (Metadata: Read automático). Establecer una fecha de caducidad y renovarlo antes de ella. No incluir el repositorio privado CMS. No compartir el token ni escribirlo en Git.
-2. En Cloudflare Workers & Pages, crear un Worker independiente llamado `typengo-status-clock`.
-3. Copiar el código completo de `cloudflare/worker.mjs` al editor del Worker y desplegarlo.
-4. En Settings > Variables and Secrets, crear un secreto `GITHUB_STATUS_TOKEN` con el token de GitHub.
-5. Añadir el Cron Trigger `*/15 * * * *` (UTC) en la configuración de Triggers. El Worker no necesita ruta pública. Alternativamente, usar Wrangler desde el directorio cloudflare, con el archivo wrangler.jsonc incluido, y configurar el secreto mediante `npx wrangler secret put GITHUB_STATUS_TOKEN`.
-6. Verificar en Cloudflare los eventos programados y en GitHub Actions las ejecuciones workflow_dispatch con source=cloudflare. Confirmar al menos tres ciclos consecutivos, que collect y deploy completan, y que status-history.json conserva las muestras anteriores y añade muestras nuevas.
+```sh
+node --test tests.mjs cloudflare/worker.test.mjs
+node cloudflare/bundle.mjs > worker-dashboard.mjs
+node --check worker-dashboard.mjs
+```
 
-El código acepta únicamente el endpoint de dispatch del repositorio público de estado y la rama main. El token solo se usa como cabecera de autenticación hacia GitHub. La ruta HTTP devuelve 404. No utiliza credenciales de npm, Supabase ni del CMS.
+Wrangler usa directamente `cloudflare/wrangler.jsonc`. El bundle reproduce el despliegue manual en el editor de Cloudflare. El código comparte contratos HTTP y reglas de incidencias con GitHub. Este despliegue usa el binding de la base y prescinde de credenciales de GitHub.
 
-Durante el cambio se mantiene el cron existente como respaldo. El workflow serializa las ejecuciones y omite una nueva muestra automática cuando la última es de hace menos de 12 minutos. Tras comprobar que el reloj de Cloudflare funciona, se puede reducir o retirar el cron de GitHub. No desactivar el workflow completo.
+## Verificación operativa
 
-Un dispatch HTTP 200/204 acredita que GitHub aceptó la solicitud, no que las comprobaciones o el despliegue hayan terminado. Si falla el envío, el Worker registra el código HTTP sin mostrar el cuerpo de la respuesta ni el token.
+1. Confirmar tres cron consecutivos con `recorded: true` en Observability. Comparar `scheduledAt` y `checkedAt`.
+2. Consultar el JSON público y verificar que incluye las tres muestras con `source: "cloudflare"`, los cuatro resultados por muestra y las fechas anteriores a la migración.
+3. Comprobar que el fallback de GitHub restaura el artefacto anterior y publica una instantánea funcional.
+4. La prueba de notificaciones se dispara manualmente con `source=notification-test`. Falla a propósito y omite colector y despliegue. Confirmar por separado la recepción privada si está habilitada.
 
-## Referencias
-
-- https://developers.cloudflare.com/workers/configuration/cron-triggers/
-- https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event
+[Panel del Worker](https://dash.cloudflare.com/3807084ce9844c9a23f0d96f810484b5/workers/services/view/typengo-status-clock/production) · [Histórico directo](https://typengo-status-clock.joseantonio-calvo88.workers.dev/status-history.json) · [GitHub Actions](https://github.com/joseantoniocalvo88/typengo-status/actions)

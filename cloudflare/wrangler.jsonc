@@ -2,7 +2,7 @@
   "name": "typengo-status-clock",
   "main": "worker.mjs",
   "compatibility_date": "2026-11-24",
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
   "triggers": {
     "crons": [
@@ -11,5 +11,12 @@
   },
   "observability": {
     "enabled": true
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "STATUS_DB",
+      "database_name": "typengo-status-history",
+      "database_id": "7482a21d-8619-44e1-bb5c-ab1197be4280"
+    }
+  ]
 }

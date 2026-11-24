@@ -8,7 +8,13 @@ export function normalize(data,target){
  const result=new Map();
  for(const s of samples){const t=Date.parse(s?.checkedAt);if(!Number.isFinite(t))continue;
  const checks={};for(const c of COMPONENTS.filter(c=>c.monitored)){const v=data.version===1?(c.id==="cms"?s:null):s.checks?.[c.id];if(validResult(v))checks[c.id]={state:v.state,httpStatus:Number.isInteger(v.httpStatus)?v.httpStatus:null,latencyMs:Number.isFinite(v.latencyMs)&&v.latencyMs>=0?Math.round(v.latencyMs):null};}
- if(Object.keys(checks).length)result.set(t,{checkedAt:new Date(t).toISOString(),checks});}
+ if(Object.keys(checks).length){
+   const sample={checkedAt:new Date(t).toISOString(),checks};
+   if(["cloudflare","github"].includes(s.source))sample.source=s.source;
+   const scheduled=Date.parse(s.scheduledAt);
+   if(sample.source==="cloudflare"&&Number.isFinite(scheduled))sample.scheduledAt=new Date(scheduled).toISOString();
+   result.set(t,sample);
+ }}
  return {version:2,target,samples:[...result.values()].sort((a,b)=>a.checkedAt.localeCompare(b.checkedAt)).slice(-12000)};
 }
 export function append(data,sample,target){if(!TARGETS.includes(target))throw Error("Unknown target");return normalize({version:2,target,samples:[...normalize(data,target).samples,sample]},target);}
@@ -32,3 +38,20 @@ export function incidents(samples,id){
  return output;
 }
 export function allIncidents(samples){return COMPONENTS.filter(c=>c.monitored).flatMap(c=>incidents(samples,c.id)).sort((a,b)=>b.startedAt.localeCompare(a.startedAt));}
+
+export const PRODUCTION_TARGET = "https://typengo.com/api/health";
+
+export function mergeHistories(...histories) {
+  const target = histories.find(history => history && TARGETS.includes(history.target))?.target ?? PRODUCTION_TARGET;
+  const slots = new Map();
+  for (const history of histories) {
+    for (const sample of normalize(history, target).samples) {
+      const slot = Math.floor(Date.parse(sample.checkedAt) / INTERVAL);
+      const previous = slots.get(slot);
+      if (!previous || (sample.source === "cloudflare" && previous.source !== "cloudflare")) {
+        slots.set(slot, sample);
+      }
+    }
+  }
+  return normalize({ version: 2, target, samples: [...slots.values()] }, target);
+}
