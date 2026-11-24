@@ -1,5 +1,5 @@
-import { DAY, INTERVAL, PRODUCTION_TARGET, allIncidents, dateKey, mergeHistories, normalize } from "../model.mjs";
-import { collectChecks, makeFeed } from "../probe.mjs";
+import { DAY, INTERVAL, PRODUCTION_TARGET, allIncidents, dateKey, normalize } from "../model.mjs";
+import { collectChecks } from "../probe.mjs";
 
 const SITE = "https://status.typengo.com";
 const HISTORY_URL = SITE + "/status-history.json";
@@ -51,18 +51,56 @@ export async function seedHistory(db, fetchImpl = globalThis.fetch) {
   return previous.samples.length;
 }
 
+const READ_DAYS = `
+WITH observations AS (
+  SELECT day, value AS sample, json_extract(value, '$.checkedAt') AS checked_at,
+         CAST(unixepoch(json_extract(value, '$.checkedAt')) / 900 AS INTEGER) AS slot, source
+  FROM status_days, json_each(status_days.samples)
+  WHERE day >= ?
+),
+ranked AS (
+  SELECT day, sample, checked_at, row_number() OVER (
+    PARTITION BY slot ORDER BY (source = 'cloudflare') DESC, checked_at
+  ) AS position
+  FROM observations
+),
+recent AS (
+  SELECT day, sample, checked_at FROM ranked WHERE position = 1 ORDER BY checked_at DESC LIMIT 12000
+)
+SELECT day, json_group_array(json(sample) ORDER BY checked_at) AS samples
+FROM recent GROUP BY day ORDER BY day
+`;
+
+async function readDays(db, now, days) {
+  const { results } = await db.prepare(READ_DAYS).bind(dateKey(now - days * DAY)).all();
+  return results;
+}
+
 export async function readHistory(db, now = Date.now(), days = 126) {
-  const { results } = await db.prepare(
-    "SELECT source, samples FROM status_days WHERE day >= ? ORDER BY day DESC"
-  ).bind(dateKey(now - days * DAY)).all();
-  const samples = { cloudflare: [], github: [] };
-  for (const row of results) {
-    samples[row.source].push(...Object.values(JSON.parse(row.samples)));
-  }
-  return mergeHistories(
-    { version: 2, target: PRODUCTION_TARGET, samples: samples.cloudflare },
-    { version: 2, target: PRODUCTION_TARGET, samples: samples.github }
-  );
+  const rows = await readDays(db, now, days);
+  return {
+    version: 2,
+    target: PRODUCTION_TARGET,
+    samples: rows.flatMap(row => JSON.parse(row.samples))
+  };
+}
+
+function streamHistory(rows) {
+  const encoder = new TextEncoder();
+  let index = -1;
+  return new ReadableStream({
+    pull(controller) {
+      if (index === -1) {
+        controller.enqueue(encoder.encode('{"version":2,"target":"' + PRODUCTION_TARGET + '","samples":['));
+      } else if (index < rows.length) {
+        controller.enqueue(encoder.encode((index ? "," : "") + rows[index].samples.slice(1, -1)));
+      } else {
+        controller.enqueue(encoder.encode("]}"));
+        controller.close();
+      }
+      index++;
+    }
+  });
 }
 
 export async function collectScheduled(scheduledTime, db, { now = Date.now, fetchImpl = globalThis.fetch } = {}) {
@@ -85,7 +123,7 @@ export async function collectScheduled(scheduledTime, db, { now = Date.now, fetc
 
   const recorded = result.meta.changes > 0;
   const events = recorded
-    ? allIncidents((await readHistory(db, now(), 7)).samples)
+    ? allIncidents((await readHistory(db, now(), 1)).samples)
         .filter(event => event.confirmedAt === checkedAt || event.resolvedAt === checkedAt)
     : [];
   return { recorded, imported, sample, events };
@@ -102,26 +140,25 @@ export default {
     }
   },
   async fetch(request, env, ctx) {
-    const path = new URL(request.url).pathname;
-    const routes = ["/status-history.json", "/feed.xml"];
-    if (request.method !== "GET" || !routes.includes(path)) return new Response("Not found", { status: 404 });
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/feed.xml") return Response.redirect(SITE + "/feed.xml", 302);
+    if (request.method !== "GET" || url.pathname !== "/status-history.json") return new Response("Not found", { status: 404 });
 
-    // Normalize the cache key so arbitrary query strings cannot multiply database reads.
-    const cacheKey = new Request(new URL(path, request.url).href);
+    const recent = url.searchParams.get("recent") === "1";
+    url.search = recent ? "?recent=1" : "";
+    const cacheKey = new Request(url.href);
     const cache = globalThis.caches?.default;
     const cached = await cache?.match(cacheKey);
     if (cached) return cached;
 
     try {
-      const history = await readHistory(env.STATUS_DB);
-      if (!history.samples.length) throw new Error("No samples");
-      const isFeed = path === "/feed.xml";
-      const body = isFeed ? makeFeed(history) : JSON.stringify(history);
-      const response = new Response(body, {
+      const rows = await readDays(env.STATUS_DB, Date.now(), recent ? 2 : 126);
+      if (!rows.length) throw new Error("No samples");
+      const response = new Response(streamHistory(rows), {
         headers: {
           ...CORS,
           "Cache-Control": "public, max-age=60",
-          "Content-Type": isFeed ? "application/rss+xml; charset=utf-8" : "application/json; charset=utf-8",
+          "Content-Type": "application/json; charset=utf-8",
           "X-Content-Type-Options": "nosniff"
         }
       });
